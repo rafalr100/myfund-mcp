@@ -1,4 +1,4 @@
-![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet?logo=anthropic)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![API](https://img.shields.io/badge/myFund.pl-API%20beta-orange)
@@ -20,7 +20,7 @@
 - [Licencja](#licencja)
 
 
-Serwer [MCP (Model Context Protocol)](https://modelcontextprotocol.io) udostępniający dane portfela inwestycyjnego z [myFund.pl](https://myfund.pl) jako narzędzia dla Claude Desktop.
+Serwer [MCP (Model Context Protocol)](https://modelcontextprotocol.io) udostępniający dane portfela inwestycyjnego z [myFund.pl](https://myfund.pl) jako narzędzia dla Claude Desktop i Claude Code.
 
 ## Narzędzia
 
@@ -30,6 +30,7 @@ Serwer [MCP (Model Context Protocol)](https://modelcontextprotocol.io) udostępn
 | `get_positions` | Lista pozycji posortowana wg wartości (ticker, typ, sektor, konto, zysk) |
 | `get_allocation` | Alokacja wg typu aktywów i wg walorów z kolorami |
 | `get_portfolio_timeseries` | Szereg czasowy: wartość / zysk / wkład / benchmark / stopa zwrotu |
+| `show_dashboard` | Zbiorczy widok wszystkich portfeli naraz |
 
 ## Przykłady użycia
 
@@ -58,18 +59,16 @@ Po podpięciu serwera możesz zadawać Claude pytania w naturalnym języku:
 ## Wymagania
 
 - macOS, Windows lub Linux
-- Python 3.10 lub nowszy
-- Claude Desktop
+- Python 3.11 lub nowszy
+- Claude Desktop lub Claude Code
 
 ## Instalacja
 
-### 1. Pobierz skrypt
-
-Pobierz plik [`myfund_mcp_server.py`](myfund_mcp_server.py) i przenieś go do wybranego folderu, np.:
+### 1. Sklonuj repozytorium
 
 ```bash
-mkdir -p ~/mcp-servers
-mv ~/Downloads/myfund_mcp_server.py ~/mcp-servers/
+git clone https://github.com/rafalr100/myfund-mcp-server.git
+cd myfund-mcp-server
 ```
 
 ### 2. Zainstaluj Pythona 3.12 (jeśli nie masz)
@@ -85,14 +84,16 @@ brew install python@3.12
 
 **macOS / Linux:**
 ```bash
-/opt/homebrew/bin/python3.12 -m venv ~/mcp-servers/venv
-~/mcp-servers/venv/bin/python -m pip install "mcp" httpx
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 **Windows:**
 ```cmd
-python -m venv %USERPROFILE%\mcp-servers\venv
-%USERPROFILE%\mcp-servers\venv\Scripts\python -m pip install "mcp" httpx
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
 ```
 
 ### 4. Pobierz klucz API z myFund.pl
@@ -101,23 +102,44 @@ Zaloguj się → **Menu → Konto → Ustawienia konta → Klucz API** → wygen
 
 > ⚠️ Wygenerowanie nowego klucza natychmiast unieważnia poprzedni.
 
-### 5. Skonfiguruj Claude Desktop
+### 5. Utwórz plik `.env`
 
-Otwórz: **Settings → Developer → Edit Config**
+```bash
+cp .env.example .env
+```
 
-Lokalizacja pliku konfiguracyjnego:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+Otwórz `.env` i wpisz klucz API oraz nazwy swoich portfeli:
 
-Wklej do sekcji `"mcpServers"`:
+```env
+MYFUND_API_KEY=twoj_klucz_api
+MYFUND_PORTFELE=Nazwa portfela 1,Nazwa portfela 2,Nazwa portfela 3
+```
+
+Nazwy portfeli muszą być **dokładnie takie jak na koncie myFund** (wielkość liter, spacje). Ta zmienna jest potrzebna tylko do `show_dashboard` — pozostałe narzędzia działają bez niej.
+
+### 6. Skonfiguruj Claude
+
+**Claude Code** — utwórz `.mcp.json` w katalogu projektu (lub skopiuj z `.mcp.json.example`):
 
 ```json
 {
   "mcpServers": {
     "myfund": {
-      "command": "/Users/TWOJA_NAZWA/mcp-servers/venv/bin/python",
-      "args": ["/Users/TWOJA_NAZWA/mcp-servers/myfund_mcp_server.py"],
+      "command": "/ścieżka/do/myfund-mcp-server/.venv/bin/python",
+      "args": ["/ścieżka/do/myfund-mcp-server/src/server.py"]
+    }
+  }
+}
+```
+
+**Claude Desktop** — otwórz **Settings → Developer → Edit Config** i dodaj do sekcji `"mcpServers"`:
+
+```json
+{
+  "mcpServers": {
+    "myfund": {
+      "command": "/Users/TWOJA_NAZWA/myfund-mcp-server/.venv/bin/python",
+      "args": ["/Users/TWOJA_NAZWA/myfund-mcp-server/src/server.py"],
       "env": {
         "MYFUND_API_KEY": "TWOJ_KLUCZ_API",
         "MYFUND_PORTFELE": "Nazwa portfela 1,Nazwa portfela 2,Nazwa portfela 3"
@@ -127,18 +149,20 @@ Wklej do sekcji `"mcpServers"`:
 }
 ```
 
-Podmień:
-- `TWOJA_NAZWA` → nazwa użytkownika systemowego (na macOS: wynik `whoami` w Terminalu)
-- `TWOJ_KLUCZ_API` → klucz z kroku 4
-- `MYFUND_PORTFELE` → nazwy Twoich portfeli **dokładnie jak na koncie myFund**, rozdzielone przecinkami (spacje w nazwach są OK). Dowolna liczba portfeli. Ta zmienna jest potrzebna tylko do dashboardu — pojedyncze narzędzia (`get_portfolio` itd.) działają bez niej.
+Lokalizacja pliku konfiguracyjnego Claude Desktop:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
 
-> **Ważne:** `command` musi wskazywać na Pythona z venv — tego, do którego zainstalowano `mcp`.
+Podmień `TWOJA_NAZWA` na nazwę użytkownika systemowego (na macOS: wynik `whoami` w Terminalu).
 
-### 6. Zrestartuj Claude Desktop
+> **Ważne:** `command` musi wskazywać na Pythona z `.venv` — tego, do którego zainstalowano zależności.
+
+### 7. Zrestartuj Claude Desktop
 
 Cmd+Q (macOS) lub całkowite zamknięcie, potem uruchom ponownie.
 
-### 7. Test
+### 8. Test
 
 W nowym czacie napisz:
 
@@ -164,9 +188,9 @@ Liczba portfeli jest dowolna — zależy od tego, ile nazw wpiszesz w `MYFUND_PO
 
 ## Skill analityczny (opcjonalnie)
 
-Oprócz serwera MCP repozytorium zawiera **Agent Skill** — `myfund-portfolio-analysis`. To osobna warstwa, która uczy Claude *jak analizować* dane z portfela: które z czterech narzędzi wybrać do danego pytania, jak interpretować stopy zwrotu, jak traktować brakujące wartości i gdzie są granice (analiza tak, porady inwestycyjne nie).
+Repozytorium zawiera **Agent Skill** — `skills/myfund-portfolio-analysis/` — dla użytkowników Claude Code. To osobna warstwa, która uczy Claude *jak analizować* dane z portfela: które z narzędzi wybrać do danego pytania, jak interpretować stopy zwrotu, jak traktować brakujące wartości i gdzie są granice (analiza tak, porady inwestycyjne nie).
 
-**Serwer MCP dostarcza dane — skill mówi, jak o nich myśleć.** Działają razem, ale są niezależne: serwer konfigurujesz w `claude_desktop_config.json`, skill wgrywasz w ustawieniach Claude.
+**Serwer MCP dostarcza dane — skill mówi, jak o nich myśleć.**
 
 ### Co daje skill
 
@@ -175,22 +199,15 @@ Oprócz serwera MCP repozytorium zawiera **Agent Skill** — `myfund-portfolio-a
 - Traktuje brakujące dane jako „brak", nie zmyśla liczb
 - Pilnuje granic: read-only, bez porad inwestycyjnych, bez analizy transakcji, których nie ma w danych
 
-### Jak wgrać w Claude
+Skill jest instalowany automatycznie gdy uruchamiasz Claude Code z katalogu `myfund-mcp-server/`.
 
-1. Pobierz [`skills/myfund-portfolio-analysis.zip`](skills/myfund-portfolio-analysis.zip)
-2. W Claude: **Settings → Capabilities** — upewnij się, że **Code execution and file creation** jest włączone (bez tego sekcja Skills się nie pojawi)
-3. Przejdź do **Capabilities → Skills** (na niektórych planach: **Customize → Skills**)
-4. Kliknij **„+"** → **Upload skill** i wskaż pobrany ZIP
-5. Claude pokaże nazwę i opis — **włącz przełącznik**, aby skill był aktywny
-6. Otwórz **nowy czat** i zadaj pytanie o portfel — skill załaduje się automatycznie
-
-> **Uwaga:** skill wymaga działającego serwera MCP `myfund` (sekcja Instalacja powyżej). Sam skill bez serwera nie ma skąd pobrać danych.
+> **Uwaga:** skill wymaga działającego serwera MCP `myfund`. Sam skill bez serwera nie ma skąd pobrać danych.
 
 ## Rozwiązywanie problemów
 
 ### ❌ `No module named 'mcp'`
-**Przyczyna:** Claude uruchamia Pythona systemowego zamiast tego z venv.
-**Rozwiązanie:** Upewnij się, że `command` w configu wskazuje na `~/mcp-servers/venv/bin/python`, a nie na systemowy `python3`.
+**Przyczyna:** Claude uruchamia Pythona systemowego zamiast tego z `.venv`.
+**Rozwiązanie:** Upewnij się, że `command` w configu wskazuje na `.venv/bin/python` wewnątrz sklonowanego repozytorium, a nie na systemowy `python3`.
 
 ### ❌ `Odpowiedź nie jest poprawnym JSON-em`
 **Przyczyna:** Niepoprawny klucz API lub brak dostępu do bety myFund.pl.
@@ -216,6 +233,7 @@ Oprócz serwera MCP repozytorium zawiera **Agent Skill** — `myfund-portfolio-a
 |---|---|---|
 | `MYFUND_API_KEY` | ✅ tak | Klucz API z ustawień konta myFund.pl |
 | `MYFUND_BASE_URL` | ❌ nie | Nadpisuje base URL (domyślnie `https://myfund.pl/API/v1`) |
+| `MYFUND_PORTFELE` | ❌ nie | Nazwy portfeli do `show_dashboard`, rozdzielone przecinkami |
 
 ## Uwagi techniczne
 
@@ -248,13 +266,13 @@ MIT
 - [License](#license)
 
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet?logo=anthropic)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![API](https://img.shields.io/badge/myFund.pl-API%20beta-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes your [myFund.pl](https://myfund.pl) investment portfolio data as tools for Claude Desktop.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes your [myFund.pl](https://myfund.pl) investment portfolio data as tools for Claude Desktop and Claude Code.
 
 ## Tools
 
@@ -264,6 +282,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that e
 | `get_positions` | List of holdings sorted by value (ticker, type, sector, account, profit) |
 | `get_allocation` | Allocation by asset type and by security, with hex colours |
 | `get_portfolio_timeseries` | Time series: value / profit / contribution / benchmark / return |
+| `show_dashboard` | Combined view across all portfolios at once |
 
 ## Usage examples
 
@@ -292,18 +311,16 @@ Once connected, you can ask Claude questions in plain language:
 ## Requirements
 
 - macOS, Windows or Linux
-- Python 3.10 or newer
-- Claude Desktop
+- Python 3.11 or newer
+- Claude Desktop or Claude Code
 
 ## Installation
 
-### 1. Download the script
-
-Download [`myfund_mcp_server.py`](myfund_mcp_server.py) and move it to a permanent location, e.g.:
+### 1. Clone the repository
 
 ```bash
-mkdir -p ~/mcp-servers
-mv ~/Downloads/myfund_mcp_server.py ~/mcp-servers/
+git clone https://github.com/rafalr100/myfund-mcp-server.git
+cd myfund-mcp-server
 ```
 
 ### 2. Install Python 3.12 (if you don't have it)
@@ -319,14 +336,16 @@ brew install python@3.12
 
 **macOS / Linux:**
 ```bash
-/opt/homebrew/bin/python3.12 -m venv ~/mcp-servers/venv
-~/mcp-servers/venv/bin/python -m pip install "mcp" httpx
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 **Windows:**
 ```cmd
-python -m venv %USERPROFILE%\mcp-servers\venv
-%USERPROFILE%\mcp-servers\venv\Scripts\python -m pip install "mcp" httpx
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
 ```
 
 ### 4. Get your API key from myFund.pl
@@ -335,23 +354,44 @@ Log in → **Menu → Account → Account Settings → API Key** → generate an
 
 > ⚠️ Generating a new key immediately invalidates the previous one.
 
-### 5. Configure Claude Desktop
+### 5. Create a `.env` file
 
-Open: **Settings → Developer → Edit Config**
+```bash
+cp .env.example .env
+```
 
-Config file location:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+Open `.env` and fill in your API key and portfolio names:
 
-Add the following block inside `"mcpServers"`:
+```env
+MYFUND_API_KEY=your_api_key
+MYFUND_PORTFELE=Portfolio name 1,Portfolio name 2,Portfolio name 3
+```
+
+Portfolio names must match **exactly as shown in your myFund account** (case-sensitive, watch for spaces). This variable is only needed for `show_dashboard` — all other tools work without it.
+
+### 6. Configure Claude
+
+**Claude Code** — create `.mcp.json` in the project directory (or copy from `.mcp.json.example`):
 
 ```json
 {
   "mcpServers": {
     "myfund": {
-      "command": "/Users/YOUR_USERNAME/mcp-servers/venv/bin/python",
-      "args": ["/Users/YOUR_USERNAME/mcp-servers/myfund_mcp_server.py"],
+      "command": "/path/to/myfund-mcp-server/.venv/bin/python",
+      "args": ["/path/to/myfund-mcp-server/src/server.py"]
+    }
+  }
+}
+```
+
+**Claude Desktop** — open **Settings → Developer → Edit Config** and add to `"mcpServers"`:
+
+```json
+{
+  "mcpServers": {
+    "myfund": {
+      "command": "/Users/YOUR_USERNAME/myfund-mcp-server/.venv/bin/python",
+      "args": ["/Users/YOUR_USERNAME/myfund-mcp-server/src/server.py"],
       "env": {
         "MYFUND_API_KEY": "YOUR_API_KEY",
         "MYFUND_PORTFELE": "Portfolio name 1,Portfolio name 2,Portfolio name 3"
@@ -361,18 +401,20 @@ Add the following block inside `"mcpServers"`:
 }
 ```
 
-Replace:
-- `YOUR_USERNAME` → your system username (on macOS: run `whoami` in Terminal)
-- `YOUR_API_KEY` → the key from step 4
-- `MYFUND_PORTFELE` → your portfolio names **exactly as shown in your myFund account**, comma-separated (spaces in names are fine). Any number of portfolios. This variable is only needed for the dashboard — individual tools (`get_portfolio` etc.) work without it.
+Config file location:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
 
-> **Important:** `command` must point to the Python binary **inside the venv** — the one where `mcp` was installed.
+Replace `YOUR_USERNAME` with your system username (on macOS: run `whoami` in Terminal).
 
-### 6. Restart Claude Desktop
+> **Important:** `command` must point to the Python binary **inside `.venv`** — the one where dependencies were installed.
+
+### 7. Restart Claude Desktop
 
 Cmd+Q (macOS) or fully close the app, then relaunch.
 
-### 7. Test
+### 8. Test
 
 In a new chat, type:
 
@@ -398,9 +440,9 @@ The number of portfolios is arbitrary — it depends on how many names you put i
 
 ## Analysis skill (optional)
 
-Beyond the MCP server, this repository includes an **Agent Skill** — `myfund-portfolio-analysis`. It is a separate layer that teaches Claude *how to analyze* portfolio data: which of the four tools to pick for a given question, how to interpret returns, how to treat missing values, and where the boundaries are (analysis yes, investment advice no).
+The repository includes an **Agent Skill** — `skills/myfund-portfolio-analysis/` — for Claude Code users. It is a separate layer that teaches Claude *how to analyze* portfolio data: which tool to pick for a given question, how to interpret returns, how to treat missing values, and where the boundaries are (analysis yes, investment advice no).
 
-**The MCP server provides the data — the skill tells Claude how to think about it.** They work together but are independent: the server is configured in `claude_desktop_config.json`, the skill is uploaded in Claude's settings.
+**The MCP server provides the data — the skill tells Claude how to think about it.**
 
 ### What the skill adds
 
@@ -409,22 +451,15 @@ Beyond the MCP server, this repository includes an **Agent Skill** — `myfund-p
 - Treats missing data as "not available" instead of inventing numbers
 - Enforces boundaries: read-only, no investment advice, no transaction analysis that isn't in the data
 
-### How to upload it in Claude
+The skill is loaded automatically when you start Claude Code from the `myfund-mcp-server/` directory.
 
-1. Download [`skills/myfund-portfolio-analysis.zip`](skills/myfund-portfolio-analysis.zip)
-2. In Claude: **Settings → Capabilities** — make sure **Code execution and file creation** is enabled (the Skills section won't appear otherwise)
-3. Go to **Capabilities → Skills** (on some plans: **Customize → Skills**)
-4. Click **"+"** → **Upload skill** and select the downloaded ZIP
-5. Claude shows the name and description — **toggle it on** to activate
-6. Open a **new chat** and ask about your portfolio — the skill loads automatically
-
-> **Note:** the skill requires a working `myfund` MCP server (Installation section above). Without the server, the skill has no data source.
+> **Note:** the skill requires a working `myfund` MCP server. Without the server, the skill has no data source.
 
 ## Troubleshooting
 
 ### ❌ `No module named 'mcp'`
 **Cause:** Claude is launching the system Python instead of the venv one.
-**Fix:** Make sure `command` in the config points to `~/mcp-servers/venv/bin/python`, not the system `python3`.
+**Fix:** Make sure `command` in the config points to `.venv/bin/python` inside the cloned repository, not the system `python3`.
 
 ### ❌ `Response is not valid JSON`
 **Cause:** Invalid API key or no access to the myFund.pl beta.
@@ -450,6 +485,7 @@ Beyond the MCP server, this repository includes an **Agent Skill** — `myfund-p
 |---|---|---|
 | `MYFUND_API_KEY` | ✅ yes | API key from myFund.pl account settings |
 | `MYFUND_BASE_URL` | ❌ no | Overrides base URL (default: `https://myfund.pl/API/v1`) |
+| `MYFUND_PORTFELE` | ❌ no | Comma-separated portfolio names for `show_dashboard` |
 
 ## Technical notes
 
