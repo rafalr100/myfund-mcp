@@ -478,6 +478,9 @@ async def show_dashboard(portfele: str = "") -> dict[str, Any]:
 # Entry point
 # --------------------------------------------------------------------------- #
 
-if __name__ == "__main__":
-    # Domyślnie transport stdio — tak podpina się serwer do Claude Desktop.
+def main() -> None:
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
