@@ -114,6 +114,18 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
+def _prune_cache(now: float) -> None:
+    """Usuwa przeterminowane wpisy z cache.
+
+    Cache jest kluczowany po parametrach żądania (nazwa portfela itp.),
+    więc bez ewikcji rósłby w nieskończoność przy długo żyjącym serwerze.
+    Przy każdym zapisie wymiatamy wszystko, co przekroczyło TTL.
+    """
+    expired = [k for k, (ts, _) in _cache.items() if now - ts >= _CACHE_TTL]
+    for k in expired:
+        del _cache[k]
+
+
 async def _call_api(params: dict[str, str]) -> dict[str, Any]:
     """Wykonuje żądanie do API myFund.pl i zwraca sparsowany JSON.
 
@@ -129,8 +141,9 @@ async def _call_api(params: dict[str, str]) -> dict[str, Any]:
     query = {"apiKey": API_KEY, "format": "json", **params}
 
     cache_key = tuple(sorted(params.items()))
+    now = time.monotonic()
     hit = _cache.get(cache_key)
-    if hit and time.monotonic() - hit[0] < _CACHE_TTL:
+    if hit and now - hit[0] < _CACHE_TTL:
         return hit[1]
 
     try:
@@ -168,8 +181,37 @@ async def _call_api(params: dict[str, str]) -> dict[str, Any]:
             )
         raise RuntimeError(f"myFund.pl status.code={code}: {msg}")
 
-    _cache[cache_key] = (time.monotonic(), data)
+    now = time.monotonic()
+    _prune_cache(now)
+    _cache[cache_key] = (now, data)
     return data
+
+
+def _date_sort_key(key: str) -> tuple:
+    """Klucz sortowania chronologicznego dla daty z szeregu czasowego.
+
+    API zwraca daty zazwyczaj jako 'YYYY-MM-DD' (wtedy sort leksykalny =
+    chronologiczny), ale nie chcemy na tym polegać. Próbujemy rozpoznać
+    'DD-MM-YYYY' / 'DD.MM.YYYY' oraz uniksowe timestampy i sprowadzić je
+    do porównywalnej krotki. Gdy nie rozpoznamy formatu, wracamy do
+    sortowania leksykalnego (stare zachowanie).
+    """
+    s = key.strip()
+    # Uniksowy timestamp (sekundy lub milisekundy)
+    if s.isdigit():
+        return (0, float(s))
+    # Rozdziel po '-', '.' lub '/'
+    parts = re.split(r"[-./]", s)
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        a, b, c = parts
+        # YYYY-MM-DD vs DD-MM-YYYY — rozpoznajemy po pozycji 4-cyfrowego roku
+        if len(a) == 4:
+            y, m, d = a, b, c
+        else:
+            d, m, y = a, b, c
+        return (0, float(f"{int(y):04d}{int(m):02d}{int(d):02d}"))
+    # Nierozpoznany format — sortuj leksykalnie, ale w osobnym „koszyku”.
+    return (1, s)
 
 
 def _series_summary(series: dict[str, Any] | None) -> dict[str, Any]:
@@ -182,7 +224,7 @@ def _series_summary(series: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(series, dict) or not series:
         return {"punkty": 0}
 
-    keys = sorted(series.keys())
+    keys = sorted(series.keys(), key=_date_sort_key)
     first_k, last_k = keys[0], keys[-1]
     return {
         "punkty": len(keys),
@@ -434,6 +476,12 @@ async def _collect_portfolios(names: list[str]) -> dict[str, Any]:
     else:
         agg_return = None
 
+    # Sumowanie wartości ma sens tylko w jednej walucie. Jeśli portfele są
+    # w różnych walutach, kwoty zbiorcze są mylące — sygnalizujemy to flagą,
+    # żeby dashboard mógł ostrzec zamiast cicho zsumować różne waluty.
+    waluty = sorted({p["waluta"] for p in portfolios if p["waluta"]})
+    waluty_niespojne = len(waluty) > 1
+
     return {
         "portfele": portfolios,
         "errors": errors,
@@ -444,7 +492,9 @@ async def _collect_portfolios(names: list[str]) -> dict[str, Any]:
             "liczba_pozycji": total_pos,
             "liczba_portfeli": len(portfolios),
             "stopa_zwrotu_1r_wazona": agg_return,
-            "waluta": portfolios[0]["waluta"] if portfolios else "PLN",
+            "waluta": waluty[0] if len(waluty) == 1 else (portfolios[0]["waluta"] if portfolios else "PLN"),
+            "waluty_niespojne": waluty_niespojne,
+            "waluty": waluty,
         },
     }
 
